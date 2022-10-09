@@ -3324,6 +3324,31 @@ bool soinfo::link_image(const SymbolLookupList& lookup_list, soinfo* local_group
 
 #if !defined(__LP64__)
   if (has_text_relocations) {
+    // Fail if app is targeting M or above.
+    int app_target_api_level = get_application_target_sdk_version();
+#ifdef SDK_VERSION_OVERRIDES
+    for (const auto& entry : android::base::Split(SDK_VERSION_OVERRIDES, " ")) {
+      auto splitted = android::base::Split(entry, "=");
+      if (splitted.size() == 2 && splitted[0] == get_realpath()) {
+        app_target_api_level = static_cast<uint32_t>(std::stoul(splitted[1]));
+        DEBUG("\"%s\" has text relocations. Overriding sdk version %d to %d", get_realpath(), get_application_target_sdk_version(), app_target_api_level);
+        break;
+      }
+    }
+#endif
+
+    if (app_target_api_level >= 23) {
+      DL_ERR_AND_LOG("\"%s\" has text relocations (%s#Text-Relocations-Enforced-for-API-level-23)",
+                     get_realpath(), kBionicChangesUrl);
+      return false;
+    }
+    // Make segments writable to allow text relocations to work properly. We will later call
+    // phdr_table_protect_segments() after all of them are applied.
+    DL_WARN_documented_change(23,
+                              "Text-Relocations-Enforced-for-API-level-23",
+                              "\"%s\" has text relocations",
+                              get_realpath());
+    add_dlwarning(get_realpath(), "text relocations");
     if (phdr_table_unprotect_segments(phdr, phnum, load_bias) < 0) {
       DL_ERR("can't unprotect loadable segments for \"%s\": %s", get_realpath(), strerror(errno));
       return false;
